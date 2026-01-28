@@ -1,2 +1,2 @@
 # Naamon
-Naamon is a Typed in-memory KV Database
+Naamon is an API Monitoring service

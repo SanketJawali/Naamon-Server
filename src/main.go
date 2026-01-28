@@ -1,51 +1,67 @@
 package main
 
 import (
-	"bufio"
+	"database/sql"
 	"fmt"
 	"log"
-	"net"
-	"strings"
+	"net/http"
+	"os"
+	"path/filepath"
+
+	"github.com/joho/godotenv"
+	"github.com/tursodatabase/go-libsql"
+
+	dbpkg "github.com/SanketJawali/naamon/src/db"
+	"github.com/SanketJawali/naamon/src/handlers"
 )
 
 func main() {
-	// Start a new TCP listener on port 6980
-	listener, err := net.Listen("tcp", ":6980")
+	// Load environment variables from .env file
+	err := godotenv.Load()
 	if err != nil {
-		log.Fatal("Error listening:", err)
+		log.Fatal("Error loading .env file")
 	}
 
-	defer listener.Close()
+	PORT := os.Getenv("PORT")
+	log.Println("Starting server at port ", PORT)
 
-	for {
-		// Accept blocks until a new connection is made
-		conn, err := listener.Accept()
-		if err != nil {
-			log.Println("Error accepting conn:", err)
-			continue
-		}
+	// Database initialization, in embeded replica format
+	dbName := "local.db"
+	primaryUrl := os.Getenv("TURSO_DATABASE_URL")
+	authToken := os.Getenv("TURSO_DATABASE_AUTH_TOKEN")
 
-		go handleConnection(conn)
-	}
-}
-
-func handleConnection(conn net.Conn) {
-	// Use buffered reader to read data from the connection
-	defer conn.Close()
-
-	reader := bufio.NewReader(conn)
-	message, err := reader.ReadString('\n')
+	dir, err := os.MkdirTemp("", "libsql-*")
 	if err != nil {
-		log.Printf("Read error: %v", err)
-		return
+		fmt.Println("Error creating temporary directory:", err)
+		os.Exit(1)
+	}
+	defer os.RemoveAll(dir)
+
+	dbPath := filepath.Join(dir, dbName)
+
+	connector, err := libsql.NewEmbeddedReplicaConnector(dbPath, primaryUrl,
+		libsql.WithAuthToken(authToken),
+	)
+	if err != nil {
+		fmt.Println("Error creating connector:", err)
+		os.Exit(1)
+	}
+	defer connector.Close()
+
+	db := sql.OpenDB(connector)
+	defer db.Close()
+
+	// Verify database tables
+	err = dbpkg.CreateTables(db)
+	if err != nil {
+		panic("DB Table creation error.")
 	}
 
-	// Using another buffer to process and write a response back
-	ackMsg := strings.ToUpper(strings.TrimSpace(message))
-	response := fmt.Sprintf("ACK: %s\n", ackMsg)
-	// Write functions returns the number of bytes written and an error if occurred
-	_, err = conn.Write([]byte(response))
-	if err != nil {
-		log.Printf("Server write error: %v", err)
-	}
+	mux := http.NewServeMux()
+
+	mux.HandleFunc("/", handlers.IndexRouteHandler)
+	mux.HandleFunc("/api/auth/register", handlers.RegisterRouteHandler)
+	mux.HandleFunc("/api/auth/login", handlers.LoginRouteHandler)
+
+	http.ListenAndServe(fmt.Sprintf(":%v", PORT), mux)
 }
