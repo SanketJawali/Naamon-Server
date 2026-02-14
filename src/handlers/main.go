@@ -16,3 +16,7 @@ func RegisterRouteHandler(w http.ResponseWriter, r *http.Request) {
 func LoginRouteHandler(w http.ResponseWriter, r *http.Request) {
 	fmt.Fprintf(w, "Login route handler.\n")
 }
+
+func SyncUserHandler(w http.ResponseWriter, r *http.Request) {
+	fmt.Fprintf(w, "Sync User Handler.\n")
+}

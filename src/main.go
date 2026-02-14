@@ -62,6 +62,7 @@ func main() {
 	mux.HandleFunc("/", handlers.IndexRouteHandler)
 	mux.HandleFunc("/api/auth/register", handlers.RegisterRouteHandler)
 	mux.HandleFunc("/api/auth/login", handlers.LoginRouteHandler)
+	mux.HandleFunc("/api/sync-user", handlers.SyncUserHandler)
 
 	http.ListenAndServe(fmt.Sprintf(":%v", PORT), mux)
 }
