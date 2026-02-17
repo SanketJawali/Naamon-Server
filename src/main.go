@@ -57,12 +57,11 @@ func main() {
 		panic("DB Table creation error.")
 	}
 
+	// Initialize HTTP server and routes
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", handlers.IndexRouteHandler)
-	mux.HandleFunc("/api/auth/register", handlers.RegisterRouteHandler)
-	mux.HandleFunc("/api/auth/login", handlers.LoginRouteHandler)
-	mux.HandleFunc("/api/sync-user", handlers.SyncUserHandler)
+	mux.HandleFunc("/proxy/:id", handlers.HandleRequest)
 
 	http.ListenAndServe(fmt.Sprintf(":%v", PORT), mux)
 }
