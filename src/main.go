@@ -1,17 +1,13 @@
 package main
 
 import (
-	"database/sql"
 	"fmt"
 	"log"
 	"net/http"
 	"os"
-	"path/filepath"
 
 	"github.com/joho/godotenv"
-	"github.com/tursodatabase/go-libsql"
 
-	dbpkg "github.com/SanketJawali/naamon/src/db"
 	"github.com/SanketJawali/naamon/src/handlers"
 )
 
@@ -24,38 +20,6 @@ func main() {
 
 	PORT := os.Getenv("PORT")
 	log.Println("Starting server at port ", PORT)
-
-	// Database initialization, in embeded replica format
-	dbName := "local.db"
-	primaryUrl := os.Getenv("TURSO_DATABASE_URL")
-	authToken := os.Getenv("TURSO_DATABASE_AUTH_TOKEN")
-
-	dir, err := os.MkdirTemp("", "libsql-*")
-	if err != nil {
-		fmt.Println("Error creating temporary directory:", err)
-		os.Exit(1)
-	}
-	defer os.RemoveAll(dir)
-
-	dbPath := filepath.Join(dir, dbName)
-
-	connector, err := libsql.NewEmbeddedReplicaConnector(dbPath, primaryUrl,
-		libsql.WithAuthToken(authToken),
-	)
-	if err != nil {
-		fmt.Println("Error creating connector:", err)
-		os.Exit(1)
-	}
-	defer connector.Close()
-
-	db := sql.OpenDB(connector)
-	defer db.Close()
-
-	// Verify database tables
-	err = dbpkg.CreateTables(db)
-	if err != nil {
-		panic("DB Table creation error.")
-	}
 
 	// Initialize HTTP server and routes
 	mux := http.NewServeMux()
