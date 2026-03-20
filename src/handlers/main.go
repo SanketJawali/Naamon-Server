@@ -2,14 +2,19 @@ package handlers
 
 import (
 	"fmt"
+	"io"
 	"log"
 	"maps"
 	"net/http"
 )
 
-func requestHandler(w http.ResponseWriter, r *http.Request) {
+type HandlerFunc struct {
+	Client *http.Client
+}
+
+func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. Set an temperory variable to hold the allocated server for this request
-	allocatedServer := "http://localhost:8080"
+	allocatedServer := "http://localhost:5000"
 
 	// 2. Properly construct the URL, including query parameters
 	// The old url creation logic was removed. It was very inefficient
@@ -60,7 +65,7 @@ func requestHandler(w http.ResponseWriter, r *http.Request) {
 	// 	tokenBucket[allocatedServer] <- 1
 	// }()
 
-	resp, err := client.Do(proxyReq)
+	resp, err := handler.Client.Do(proxyReq)
 	if err != nil {
 		log.Printf("Error reaching backend server at '%s': %v", allocatedServer, err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway) // No more log.Fatal
@@ -84,7 +89,7 @@ func requestHandler(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-func HandleRequest(w http.ResponseWriter, r *http.Request) {
+func (handler HandlerFunc) HandleRequest(w http.ResponseWriter, r *http.Request) {
 	// 1. Validate the request
 	fmt.Println("Received request:", r.Method, r.URL.Path)
 	fmt.Println("Headers:", r.Header)
@@ -98,12 +103,12 @@ func HandleRequest(w http.ResponseWriter, r *http.Request) {
 	// 6. Send the response back to the client
 }
 
-func IndexRouteHandler(w http.ResponseWriter, r *http.Request) {
+func (handler HandlerFunc) IndexRouteHandler(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 
 	case http.MethodGet:
-		w.Write([]byte("Welcome to Naamon!"))
+		w.Write([]byte("Welcome to Naamon!\n"))
 	case http.MethodPost:
-		w.Write([]byte("POST request received at /"))
+		w.Write([]byte("POST request received at /\n"))
 	}
 }

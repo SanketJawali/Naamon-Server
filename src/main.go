@@ -21,11 +21,17 @@ func main() {
 	PORT := os.Getenv("PORT")
 	log.Println("Starting server at port ", PORT)
 
+	// Initializing the Client instance
+	// Used to forward the requests from the clients to the servers
+	handler := &handlers.HandlerFunc{
+		Client: &http.Client{},
+	}
+
 	// Initialize HTTP server and routes
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", handlers.IndexRouteHandler)
-	mux.HandleFunc("/proxy/:id", handlers.HandleRequest)
+	mux.HandleFunc("/", handler.RequestHandler)
+	mux.HandleFunc("/proxy/:id", handler.RequestHandler)
 
 	http.ListenAndServe(fmt.Sprintf(":%v", PORT), mux)
 }
