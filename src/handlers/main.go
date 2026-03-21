@@ -6,15 +6,32 @@ import (
 	"log"
 	"maps"
 	"net/http"
+	"strings"
 )
 
 type HandlerFunc struct {
-	Client *http.Client
+	Client     *http.Client
+	ServerList map[string]string
 }
 
 func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request) {
-	// 1. Set an temperory variable to hold the allocated server for this request
-	allocatedServer := "http://localhost:5000"
+	// 1. Set an temperory variable to
+	targetId := strings.TrimPrefix(r.URL.Path, "/")
+
+	// Validate
+	if targetId == "" || strings.Contains(targetId, "/") {
+		http.Error(w, "Invalid ID", http.StatusBadRequest)
+		return
+	}
+
+	log.Println("Target ID: ", targetId)
+	log.Println("Cache: ", handler.ServerList)
+	targetServer := handler.ServerList[targetId]
+
+	if targetServer == "" {
+		targetServer = "http://localhost:5000"
+		handler.ServerList[targetId] = targetServer
+	}
 
 	// 2. Properly construct the URL, including query parameters
 	// The old url creation logic was removed. It was very inefficient
@@ -26,9 +43,9 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	var targetUrl string
 
 	if r.URL.RawQuery != "" {
-		targetUrl = fmt.Sprintf("%s%s?%s", allocatedServer, r.URL.Path, r.URL.RawQuery)
+		targetUrl = fmt.Sprintf("%s%s?%s", targetServer, r.URL.Path, r.URL.RawQuery)
 	} else {
-		targetUrl = fmt.Sprintf("%s%s", allocatedServer, r.URL.Path)
+		targetUrl = fmt.Sprintf("%s%s", targetServer, r.URL.Path)
 	}
 
 	// Trauncate very long URLs, log the server we're routing to
@@ -59,15 +76,15 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	// If the bucket is empty, it will block until a token is available.
 	// Stays blocked until a token is available.
 
-	// <-tokenBucket[allocatedServer]
+	// <-tokenBucket[targetServer]
 	// defer func() {
 	// 	// Return the token to the bucket after the request is done
-	// 	tokenBucket[allocatedServer] <- 1
+	// 	tokenBucket[targetServer] <- 1
 	// }()
 
 	resp, err := handler.Client.Do(proxyReq)
 	if err != nil {
-		log.Printf("Error reaching backend server at '%s': %v", allocatedServer, err)
+		log.Printf("Error reaching backend server at '%s': %v", targetServer, err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway) // No more log.Fatal
 		return
 	}
