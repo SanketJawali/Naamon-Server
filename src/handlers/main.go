@@ -1,22 +1,27 @@
 package handlers
 
 import (
+	"context"
 	"fmt"
 	"io"
 	"log"
 	"maps"
 	"net/http"
 	"strings"
+
+	"github.com/SanketJawali/naamon/src/db"
 )
 
 type HandlerFunc struct {
 	Client     *http.Client
 	ServerList map[string]string
+	Ctx        context.Context
+	DB         *db.Queries
 }
 
 func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. Set an temperory variable to
-	targetId := strings.TrimPrefix(r.URL.Path, "/")
+	targetId := r.URL.Query().Get("id")
 
 	// Validate
 	if targetId == "" || strings.Contains(targetId, "/") {
@@ -26,11 +31,17 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 
 	log.Println("Target ID: ", targetId)
 	log.Println("Cache: ", handler.ServerList)
-	targetServer := handler.ServerList[targetId]
+
+	// Get the target server from DB or cache
+	// TODO: Implement the caching layer for the target servers. For now, we will just query the database for each request.
+	targetServerTuple, err := handler.DB.GetTargetUrlByApiKey(handler.Ctx, targetId)
+	targetServer := targetServerTuple.TargetUrl.String
+	// log.Printf("Target server for ID '%s': %v\n", targetId, targetServerTuple)
 
 	if targetServer == "" {
-		targetServer = "http://localhost:5000"
-		handler.ServerList[targetId] = targetServer
+		log.Printf("No target server found for ID '%s'\n", targetId)
+		w.WriteHeader(http.StatusNotFound)
+		return
 	}
 
 	// 2. Properly construct the URL, including query parameters
@@ -43,9 +54,9 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	var targetUrl string
 
 	if r.URL.RawQuery != "" {
-		targetUrl = fmt.Sprintf("%s%s?%s", targetServer, r.URL.Path, r.URL.RawQuery)
+		targetUrl = fmt.Sprintf("%v%s?%s", targetServer, r.URL.Path, r.URL.RawQuery)
 	} else {
-		targetUrl = fmt.Sprintf("%s%s", targetServer, r.URL.Path)
+		targetUrl = fmt.Sprintf("%v%s", targetServer, r.URL.Path)
 	}
 
 	// Trauncate very long URLs, log the server we're routing to
@@ -84,7 +95,7 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 
 	resp, err := handler.Client.Do(proxyReq)
 	if err != nil {
-		log.Printf("Error reaching backend server at '%s': %v", targetServer, err)
+		log.Printf("Error reaching backend server at '%v': %v", targetServer, err)
 		http.Error(w, "Bad Gateway", http.StatusBadGateway) // No more log.Fatal
 		return
 	}

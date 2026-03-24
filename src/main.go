@@ -16,8 +16,10 @@ import (
 	"github.com/SanketJawali/naamon/src/handlers"
 )
 
+// Store schama in a variable during compile time.
+//
 //go:embed db/schema.sql
-var ddl string
+var schema string
 
 func main() {
 	err := godotenv.Load()
@@ -36,19 +38,24 @@ func main() {
 	}
 
 	// create tables
-	if _, err := conn.ExecContext(ctx, ddl); err != nil {
+	if _, err := conn.ExecContext(ctx, schema); err != nil {
 		log.Fatal(err)
 	}
 
 	// pass *sql.DB into sqlc
 	queries := db.New(conn)
-	log.Println("Database initialized successfully. Queries: ", queries)
+	log.Println("Database initialized successfully")
+
+	// Add some dummy data to the database
+	queries.AddDummyData(ctx)
 
 	// Initializing the Client instance
 	// Used to forward the requests from the clients to the servers
 	handler := &handlers.HandlerFunc{
 		Client:     &http.Client{},
 		ServerList: make(map[string]string),
+		Ctx:        ctx,
+		DB:         queries,
 	}
 
 	// Initialize HTTP server and routes
