@@ -21,7 +21,28 @@ type HandlerFunc struct {
 
 func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request) {
 	// 1. Set an temperory variable to
-	targetId := r.URL.Query().Get("id")
+	// The URL path is expected to be in the format /{id}/... where {id} is the target ID
+	if len(r.URL.Path) < 2 {
+		http.Error(w, "No ID provided", http.StatusBadRequest)
+		return
+	}
+
+	urlPath := r.URL.Path[1:]
+	log.Println("URL Path: ", urlPath)
+	// Remove leading and trailing slashes to get the target ID
+	urlSplit := strings.SplitN(urlPath, "/", 2)
+
+	if len(urlSplit) < 1 {
+		http.Error(w, "No ID Provided", http.StatusBadRequest)
+	} else if len(urlSplit) < 2 {
+		// Assuming that the Id is provided without the trailing `/` for index route
+		// append the `/` for directing request to index route
+		urlSplit = append(urlSplit, "/")
+	}
+
+	targetId := urlSplit[0]
+	targetRoute := "/" + urlSplit[1]
+	// log.Println("Splitted URL: ", urlSplit)
 
 	// Validate
 	if targetId == "" || strings.Contains(targetId, "/") {
@@ -54,9 +75,9 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	var targetUrl string
 
 	if r.URL.RawQuery != "" {
-		targetUrl = fmt.Sprintf("%v%s?%s", targetServer, r.URL.Path, r.URL.RawQuery)
+		targetUrl = fmt.Sprintf("%v%s?%s", targetServer, targetRoute, r.URL.RawQuery)
 	} else {
-		targetUrl = fmt.Sprintf("%v%s", targetServer, r.URL.Path)
+		targetUrl = fmt.Sprintf("%v%s", targetServer, targetRoute)
 	}
 
 	// Trauncate very long URLs, log the server we're routing to
