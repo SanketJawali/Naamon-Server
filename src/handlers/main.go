@@ -58,13 +58,13 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	// Check if the target server URL is already in the cache (ServerList)
 	serverUrl, ok := handler.ServerList[targetId]
 	if !ok {
-		targetServerTuple, err := handler.DB.GetTargetUrlByApiKey(handler.Ctx, targetId)
+		targetServerTuple, err := handler.DB.GetApiMapByKey(handler.Ctx, targetId)
 		if err != nil {
 			log.Printf("Error fetching target server for ID '%s': %v\n", targetId, err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
 		}
 
-		targetServer = targetServerTuple.TargetUrl.String
+		targetServer = targetServerTuple.TargetUrl
 		handler.ServerList[targetId] = targetServer
 	} else {
 		targetServer = serverUrl

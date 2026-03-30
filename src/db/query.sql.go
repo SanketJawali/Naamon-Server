@@ -11,22 +11,30 @@ import (
 )
 
 const createApiMap = `-- name: CreateApiMap :exec
-INSERT INTO api_maps (key, target_url) VALUES (?, ?)
+INSERT INTO api_maps (user_id, key, target_url, policies)
+VALUES (?, ?, ?, ?)
 `
 
 type CreateApiMapParams struct {
+	UserID    int64
 	Key       string
-	TargetUrl sql.NullString
+	TargetUrl string
+	Policies  sql.NullString
 }
 
 func (q *Queries) CreateApiMap(ctx context.Context, arg CreateApiMapParams) error {
-	_, err := q.db.ExecContext(ctx, createApiMap, arg.Key, arg.TargetUrl)
+	_, err := q.db.ExecContext(ctx, createApiMap,
+		arg.UserID,
+		arg.Key,
+		arg.TargetUrl,
+		arg.Policies,
+	)
 	return err
 }
 
 const createUser = `-- name: CreateUser :exec
-
-INSERT INTO users (username, email, password) VALUES (?, ?, ?)
+INSERT INTO users (username, email, password)
+VALUES (?, ?, ?)
 `
 
 type CreateUserParams struct {
@@ -35,16 +43,26 @@ type CreateUserParams struct {
 	Password string
 }
 
-// ----------------------------------------------------------
 func (q *Queries) CreateUser(ctx context.Context, arg CreateUserParams) error {
 	_, err := q.db.ExecContext(ctx, createUser, arg.Username, arg.Email, arg.Password)
 	return err
 }
 
-const getAllUsers = `-- name: GetAllUsers :many
-SELECT id, username, email, password FROM users
+const deleteApiMapByKey = `-- name: DeleteApiMapByKey :exec
+DELETE FROM api_maps WHERE key = ?
 `
 
+func (q *Queries) DeleteApiMapByKey(ctx context.Context, key string) error {
+	_, err := q.db.ExecContext(ctx, deleteApiMapByKey, key)
+	return err
+}
+
+const getAllUsers = `-- name: GetAllUsers :many
+
+SELECT id, username, email, password, created_at FROM users
+`
+
+// ******************* User Queries *******************
 func (q *Queries) GetAllUsers(ctx context.Context) ([]User, error) {
 	rows, err := q.db.QueryContext(ctx, getAllUsers)
 	if err != nil {
@@ -59,6 +77,7 @@ func (q *Queries) GetAllUsers(ctx context.Context) ([]User, error) {
 			&i.Username,
 			&i.Email,
 			&i.Password,
+			&i.CreatedAt,
 		); err != nil {
 			return nil, err
 		}
@@ -73,19 +92,80 @@ func (q *Queries) GetAllUsers(ctx context.Context) ([]User, error) {
 	return items, nil
 }
 
-const getTargetUrlByApiKey = `-- name: GetTargetUrlByApiKey :one
-SELECT id, "key", target_url FROM api_maps WHERE key = ?
+const getApiMapByKey = `-- name: GetApiMapByKey :one
+
+SELECT id, user_id, key, target_url, policies
+FROM api_maps
+WHERE key = ?
 `
 
-func (q *Queries) GetTargetUrlByApiKey(ctx context.Context, key string) (ApiMap, error) {
-	row := q.db.QueryRowContext(ctx, getTargetUrlByApiKey, key)
-	var i ApiMap
-	err := row.Scan(&i.ID, &i.Key, &i.TargetUrl)
+type GetApiMapByKeyRow struct {
+	ID        int64
+	UserID    int64
+	Key       string
+	TargetUrl string
+	Policies  sql.NullString
+}
+
+// ----------------------------------------------------------
+func (q *Queries) GetApiMapByKey(ctx context.Context, key string) (GetApiMapByKeyRow, error) {
+	row := q.db.QueryRowContext(ctx, getApiMapByKey, key)
+	var i GetApiMapByKeyRow
+	err := row.Scan(
+		&i.ID,
+		&i.UserID,
+		&i.Key,
+		&i.TargetUrl,
+		&i.Policies,
+	)
 	return i, err
 }
 
+const getApiMapsByUser = `-- name: GetApiMapsByUser :many
+SELECT id, user_id, key, target_url, policies
+FROM api_maps
+WHERE user_id = ?
+`
+
+type GetApiMapsByUserRow struct {
+	ID        int64
+	UserID    int64
+	Key       string
+	TargetUrl string
+	Policies  sql.NullString
+}
+
+func (q *Queries) GetApiMapsByUser(ctx context.Context, userID int64) ([]GetApiMapsByUserRow, error) {
+	rows, err := q.db.QueryContext(ctx, getApiMapsByUser, userID)
+	if err != nil {
+		return nil, err
+	}
+	defer rows.Close()
+	var items []GetApiMapsByUserRow
+	for rows.Next() {
+		var i GetApiMapsByUserRow
+		if err := rows.Scan(
+			&i.ID,
+			&i.UserID,
+			&i.Key,
+			&i.TargetUrl,
+			&i.Policies,
+		); err != nil {
+			return nil, err
+		}
+		items = append(items, i)
+	}
+	if err := rows.Close(); err != nil {
+		return nil, err
+	}
+	if err := rows.Err(); err != nil {
+		return nil, err
+	}
+	return items, nil
+}
+
 const getUserById = `-- name: GetUserById :one
-SELECT id, username, email, password FROM users WHERE id = ?
+SELECT id, username, email, password, created_at FROM users WHERE id = ?
 `
 
 func (q *Queries) GetUserById(ctx context.Context, id int64) (User, error) {
@@ -96,12 +176,13 @@ func (q *Queries) GetUserById(ctx context.Context, id int64) (User, error) {
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
 const getUserByUsername = `-- name: GetUserByUsername :one
-SELECT id, username, email, password FROM users WHERE username = ?
+SELECT id, username, email, password, created_at FROM users WHERE username = ?
 `
 
 func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User, error) {
@@ -112,20 +193,39 @@ func (q *Queries) GetUserByUsername(ctx context.Context, username string) (User,
 		&i.Username,
 		&i.Email,
 		&i.Password,
+		&i.CreatedAt,
 	)
 	return i, err
 }
 
-const updateApiMapByKey = `-- name: UpdateApiMapByKey :exec
-UPDATE api_maps SET target_url = ? WHERE key = ?
+const updateApiMapPoliciesByKey = `-- name: UpdateApiMapPoliciesByKey :exec
+UPDATE api_maps
+SET policies = ?, updated_at = CURRENT_TIMESTAMP
+WHERE key = ?
 `
 
-type UpdateApiMapByKeyParams struct {
-	TargetUrl sql.NullString
+type UpdateApiMapPoliciesByKeyParams struct {
+	Policies sql.NullString
+	Key      string
+}
+
+func (q *Queries) UpdateApiMapPoliciesByKey(ctx context.Context, arg UpdateApiMapPoliciesByKeyParams) error {
+	_, err := q.db.ExecContext(ctx, updateApiMapPoliciesByKey, arg.Policies, arg.Key)
+	return err
+}
+
+const updateApiMapTargetByKey = `-- name: UpdateApiMapTargetByKey :exec
+UPDATE api_maps
+SET target_url = ?, updated_at = CURRENT_TIMESTAMP
+WHERE key = ?
+`
+
+type UpdateApiMapTargetByKeyParams struct {
+	TargetUrl string
 	Key       string
 }
 
-func (q *Queries) UpdateApiMapByKey(ctx context.Context, arg UpdateApiMapByKeyParams) error {
-	_, err := q.db.ExecContext(ctx, updateApiMapByKey, arg.TargetUrl, arg.Key)
+func (q *Queries) UpdateApiMapTargetByKey(ctx context.Context, arg UpdateApiMapTargetByKeyParams) error {
+	_, err := q.db.ExecContext(ctx, updateApiMapTargetByKey, arg.TargetUrl, arg.Key)
 	return err
 }

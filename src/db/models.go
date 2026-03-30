@@ -10,13 +10,18 @@ import (
 
 type ApiMap struct {
 	ID        int64
+	UserID    int64
 	Key       string
-	TargetUrl sql.NullString
+	TargetUrl string
+	Policies  sql.NullString
+	CreatedAt sql.NullTime
+	UpdatedAt sql.NullTime
 }
 
 type User struct {
-	ID       int64
-	Username string
-	Email    string
-	Password string
+	ID        int64
+	Username  string
+	Email     string
+	Password  string
+	CreatedAt sql.NullTime
 }
