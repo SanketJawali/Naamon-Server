@@ -33,6 +33,8 @@ func main() {
 	ctx := context.Background()
 
 	conn, err := sql.Open("sqlite", ":memory:")
+	defer conn.Close()
+
 	if err != nil {
 		log.Fatal(err)
 	}
@@ -47,13 +49,16 @@ func main() {
 	log.Println("Database initialized successfully")
 
 	// Add some dummy data to the database
-	queries.AddDummyData(ctx)
+	log.Println("Adding dummy data to the database")
+	if err := queries.AddDummyData(ctx); err != nil {
+		log.Fatal(err)
+	}
 
 	// Initializing the Client instance
 	// Used to forward the requests from the clients to the servers
 	handler := &handlers.HandlerFunc{
 		Client:     &http.Client{},
-		ServerList: make(map[string]string),
+		ServerList: make(map[string]db.GetApiMapByKeyRow),
 		Ctx:        ctx,
 		DB:         queries,
 	}
@@ -62,7 +67,6 @@ func main() {
 	mux := http.NewServeMux()
 
 	mux.HandleFunc("/", handler.RequestHandler)
-	// mux.HandleFunc("/proxy/:id", handler.RequestHandler)
 
 	http.ListenAndServe(fmt.Sprintf(":%v", PORT), mux)
 }

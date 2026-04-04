@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"log"
 )
 
 func makePolicies(p map[string]interface{}) sql.NullString {
@@ -13,12 +14,13 @@ func makePolicies(p map[string]interface{}) sql.NullString {
 
 	b, err := json.Marshal(p)
 	if err != nil {
+		log.Printf("Error marshaling policies: %v", err)
 		return sql.NullString{}
 	}
 
 	return sql.NullString{
 		String: string(b),
-		Valid:  true,
+		Valid:  bool(true),
 	}
 }
 
@@ -28,18 +30,18 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 		{
 			UserID:    1,
 			Key:       "abc123",
-			TargetUrl: "http://localhost:5000",
+			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"rate_limit": map[string]interface{}{
 					"limit":  100,
-					"window": "60s",
+					"window": "5s",
 				},
 			}),
 		},
 		{
 			UserID:    1,
 			Key:       "def456",
-			TargetUrl: "http://localhost:5001",
+			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"auth": map[string]interface{}{
 					"enabled": true,
@@ -50,7 +52,7 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 		{
 			UserID:    1,
 			Key:       "ghi789",
-			TargetUrl: "http://localhost:5002",
+			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"rate_limit": map[string]interface{}{
 					"limit":  50,
@@ -65,7 +67,7 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 		{
 			UserID:    1,
 			Key:       "jkl012",
-			TargetUrl: "http://localhost:5003",
+			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"timeout": map[string]interface{}{
 					"duration_ms": 2000,
@@ -75,7 +77,7 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 		{
 			UserID:    2,
 			Key:       "mno345",
-			TargetUrl: "http://localhost:5004",
+			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"rate_limit": map[string]interface{}{
 					"limit":  10,
@@ -89,15 +91,17 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 		{
 			UserID:    2,
 			Key:       "pqr678",
-			TargetUrl: "http://localhost:5005",
+			TargetUrl: "http://localhost:8000",
 			Policies:  makePolicies(nil), // no policies
 		},
 	}
 
 	for _, t := range data {
-		if err := q.CreateApiMap(ctx, t); err != nil {
+		err := q.CreateApiMap(ctx, t)
+		if err != nil {
 			return err
 		}
+		log.Printf("Added dummy data for key '%s' | Policies: %s\n", t.Key, t.Policies.String)
 	}
 
 	return nil
