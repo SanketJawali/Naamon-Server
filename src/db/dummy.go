@@ -33,8 +33,8 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"rate_limit": map[string]interface{}{
-					"limit":  100,
-					"window": "5s",
+					"capacity": 100,
+					"rate":     20.0,
 				},
 			}),
 		},
@@ -42,12 +42,7 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 			UserID:    1,
 			Key:       "def456",
 			TargetUrl: "http://localhost:8000",
-			Policies: makePolicies(map[string]interface{}{
-				"auth": map[string]interface{}{
-					"enabled": true,
-					"type":    "api_key",
-				},
-			}),
+			Policies:  makePolicies(map[string]interface{}{}), // no policies
 		},
 		{
 			UserID:    1,
@@ -55,12 +50,8 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"rate_limit": map[string]interface{}{
-					"limit":  50,
-					"window": "30s",
-				},
-				"auth": map[string]interface{}{
-					"enabled": true,
-					"type":    "api_key",
+					"capacity": 50,
+					"rate":     1.67,
 				},
 			}),
 		},
@@ -80,19 +71,13 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"rate_limit": map[string]interface{}{
-					"limit":  10,
-					"window": "10s",
+					"capacity": 10,
+					"rate":     1.0,
 				},
 				"timeout": map[string]interface{}{
 					"duration_ms": 1000,
 				},
 			}),
-		},
-		{
-			UserID:    2,
-			Key:       "pqr678",
-			TargetUrl: "http://localhost:8000",
-			Policies:  makePolicies(nil), // no policies
 		},
 	}
 

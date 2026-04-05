@@ -8,20 +8,16 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"testing"
 
 	"github.com/joho/godotenv"
 	_ "modernc.org/sqlite"
 
 	"github.com/SanketJawali/naamon/src/db"
-	"github.com/SanketJawali/naamon/src/handlers"
+	"github.com/SanketJawali/naamon/src/handlers_test"
 )
 
-// Store schama in a variable during compile time.
-//
-//go:embed db/schema.sql
-var schema string
-
-func main() {
+func TestMain(t *testing.T) {
 	err := godotenv.Load()
 	if err != nil {
 		log.Fatal("Error loading .env file")
@@ -56,22 +52,17 @@ func main() {
 
 	// Initializing the Client instance
 	// Used to forward the requests from the clients to the servers
-	serverList := &handlers.ServerListT{
-		List: make(map[string]*db.GetApiMapByKeyRow),
-	}
-
-	handler := &handlers.HandlerFunc{
-		Client:       &http.Client{},
-		ServerList:   serverList,
-		RateLimiters: make(map[string]*handlers.RateLimiter),
-		Ctx:          ctx,
-		DB:           queries,
+	handler := &handlers_test.HandlerFunc{
+		Client:     &http.Client{},
+		ServerList: make(map[string]db.GetApiMapByKeyRow),
+		Ctx:        ctx,
+		DB:         queries,
 	}
 
 	// Initialize HTTP server and routes
 	mux := http.NewServeMux()
 
-	mux.HandleFunc("/", handler.RequestHandler)
+	mux.HandleFunc("/", handler.TestRequestHandler)
 
 	http.ListenAndServe(fmt.Sprintf(":%v", PORT), mux)
 }
