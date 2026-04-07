@@ -33,8 +33,8 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 			TargetUrl: "http://localhost:8000",
 			Policies: makePolicies(map[string]interface{}{
 				"rate_limit": map[string]interface{}{
-					"capacity": 100,
-					"rate":     20.0,
+					"capacity": 5,
+					"rate":     1.0,
 				},
 			}),
 		},
@@ -86,7 +86,7 @@ func (q *Queries) AddDummyData(ctx context.Context) error {
 		if err != nil {
 			return err
 		}
-		log.Printf("Added dummy data for key '%s' | Policies: %s\n", t.Key, t.Policies.String)
+		log.Printf("Added dummy data for key '%s' | Target: %s | Policies: %s\n", t.Key, t.TargetUrl, t.Policies.String)
 	}
 
 	return nil

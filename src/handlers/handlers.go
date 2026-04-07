@@ -37,8 +37,8 @@ type Policies struct {
 }
 
 type RateLimitPolicy struct {
-	Capacity int `json:"capacity"`
-	Rate     int `json:"rate"`
+	Capacity int     `json:"capacity"`
+	Rate     float64 `json:"rate"`
 }
 
 type TimeoutPolicy struct {
@@ -122,20 +122,25 @@ func (list *ServerListT) GetServerEntry(key string) (db.GetApiMapByKeyRow, bool)
 }
 
 // Add an API Entry in the in memory cache
-func (list *ServerListT) AddServerEntry(key string, value db.GetApiMapByKeyRow) bool {
+func (list *ServerListT) AddServerEntry(key string, value *db.GetApiMapByKeyRow) bool {
 	list.mu.Lock()
 	defer list.mu.Unlock()
 
 	// Check if exists
 	_, exists := list.List[key]
 	if exists {
-		return false
+		return true
 	}
 
 	// Add new server entry in server list
-	list.List[key] = &value
+	list.List[key] = value
 
-	return true
+	// Check if added successfully
+	if _, exists = list.List[key]; exists {
+		return true
+	}
+
+	return false
 }
 
 const defaultProxyTimeout = 30 * time.Second
@@ -150,7 +155,6 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	}
 
 	urlPath := r.URL.Path[1:]
-	log.Println("URL Path: ", urlPath)
 	// Remove leading and trailing slashes to get the target ID
 	urlSplit := strings.SplitN(urlPath, "/", 2)
 
@@ -175,10 +179,21 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	var targetServer string
 
 	// Check if the target server URL is already in the cache (ServerList)
-	apiEntry, exists := handler.ServerList.GetServerEntry(targetServer)
+	apiEntry, exists := handler.ServerList.GetServerEntry(targetId)
 	if !exists {
 		var err error
 		dbEntry, err := handler.DB.GetApiMapByKey(handler.Ctx, targetId)
+		if dbEntry.Key == "" || dbEntry.ID == 0 {
+			log.Printf("Warning: No database entry found for ID '%v'\n", dbEntry)
+			http.Error(w, "Not Found", http.StatusNotFound)
+			return
+		}
+
+		if dbEntry.TargetUrl == "" {
+			w.WriteHeader(http.StatusNotFound)
+			return
+		}
+
 		if err != nil {
 			log.Printf("Err: Error fetching target server for ID '%s': %v\n", targetId, err)
 			http.Error(w, "Internal Server Error", http.StatusInternalServerError)
@@ -186,16 +201,12 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 		}
 
 		targetServer = dbEntry.TargetUrl
-		handler.ServerList.AddServerEntry(targetServer, dbEntry)
+		if status := handler.ServerList.AddServerEntry(targetId, &dbEntry); !status {
+			log.Printf("Err: Failed to add server entry for ID '%s' to cache\n", targetId)
+		}
 		apiEntry = dbEntry
 	} else {
 		targetServer = apiEntry.TargetUrl
-	}
-
-	if targetServer == "" {
-		log.Printf("No target server found for ID '%s'\n", targetId)
-		w.WriteHeader(http.StatusNotFound)
-		return
 	}
 
 	// 3. Properly construct the URL, including query parameters
@@ -208,16 +219,8 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 		targetUrl = fmt.Sprintf("%v%s", targetServer, targetRoute)
 	}
 
-	// Trauncate very long URLs, log the server we're routing to
-	if len(targetUrl) > 80 {
-		log.Printf("Routing request to: %s (truncated)\n", targetUrl[:80])
-	} else {
-		log.Println("Routing request to: ", targetUrl)
-	}
-
 	// Extract policies from the database entry and unmarshal them into the Policies struct
 	var policies Policies
-	log.Printf("Unmarshaling policies for ID '%s': %v\n", targetId, apiEntry.Policies.Valid)
 	if !apiEntry.Policies.Valid {
 		log.Printf("No valid policies found for ID '%s', using default policies\n", targetId)
 	} else {
@@ -254,22 +257,29 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 	maps.Copy(proxyReq.Header, r.Header)
 
 	// 6. Apply policies here (authentication, rate limiting, etc.)
-	if (RateLimitPolicy{}) != *policies.RateLimit {
-
+	if policies.RateLimit != nil && (RateLimitPolicy{}) != *policies.RateLimit {
 		rl := handler.GetRateLimiter(r, float64(policies.RateLimit.Rate), policies.RateLimit.Capacity)
 		if !rl.Accept() {
-			log.Printf("Request to API with Id %s canceled, Rate limit exceeded for IP %s\n", targetServer, r.RemoteAddr)
+			ip, _, _ := net.SplitHostPort(r.RemoteAddr)
+			log.Printf("Rate Limit: Request to API with Id %s canceled, Rate limit exceeded for IP %s\n", targetServer, ip)
 			http.Error(w, "Request to API canceled. Rate Limited", http.StatusTooManyRequests)
 			return
 		}
 	}
 
 	// 7. Make the request to the backend server
+	// Trauncate very long URLs, log the server we're routing to
+	if len(targetUrl) > 80 {
+		log.Printf("Routing request to: %s (truncated)\n", targetUrl[:80])
+	} else {
+		log.Println("Routing request to: ", targetUrl)
+	}
+
 	resp, err := handler.Client.Do(proxyReq)
 	if err != nil {
 		// Check if the error occured due to a timeout
 		if errors.Is(err, context.DeadlineExceeded) {
-			log.Printf("Err: Request to backend server at '%v' timed out: %v", targetServer, err)
+			log.Printf("Gateway Timeout: Request to backend server at '%v' timed out: %v", targetServer, err)
 			http.Error(w, "Gateway Timeout", http.StatusGatewayTimeout)
 			return
 		}
