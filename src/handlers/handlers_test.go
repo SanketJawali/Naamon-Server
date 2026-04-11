@@ -8,9 +8,12 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strconv"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"testing"
+	"time"
 
 	_ "modernc.org/sqlite"
 
@@ -164,5 +167,153 @@ func TestRequestHandler_AppliesRateLimitPolicy(t *testing.T) {
 
 	if atomic.LoadInt32(&backendCalls) != 1 {
 		t.Fatalf("expected backend to be called once, got %d", backendCalls)
+	}
+}
+
+func TestRequestHandler_TimeoutTest(t *testing.T) {
+	queries, ctx := setupTestDB(t)
+
+	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Header.Get("delay") == "" {
+			w.WriteHeader(http.StatusOK)
+			w.Write([]byte("Hello World!"))
+			return
+		}
+
+		delayDuration, err := strconv.Atoi(r.Header.Get("delay"))
+		if err != nil {
+			t.Fatal("Failed to Convert")
+		}
+
+		// Convert the delay duration (in ms) to ns. Multiplying by time.Millisecond converts the duration into ns
+		time.Sleep(time.Duration(delayDuration * int(time.Millisecond)))
+
+		w.WriteHeader(http.StatusOK)
+		fmt.Fprintf(w, "Hello World! \nDelay of %v seconds", time.Duration(delayDuration).Seconds())
+	}))
+	t.Cleanup(func() { backend.Close() })
+
+	targetId := "abc123"
+
+	if err := queries.CreateApiMap(ctx, db.CreateApiMapParams{
+		UserID:    1,
+		Key:       targetId,
+		TargetUrl: backend.URL,
+		Policies: sql.NullString{
+			String: `{"timeout": {"duration_ms": 500}}`,
+			Valid:  true,
+		},
+	}); err != nil {
+		t.Fatalf("Err: failed to add api key map in db: %v", err)
+		return
+	}
+
+	handler := newTestHandler(queries, ctx)
+
+	firstReq := httptest.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("/%s", targetId), nil)
+	firstReq.Header.Add("delay", "0")
+	firstReq.RemoteAddr = "127.0.0.1:9876"
+	firstRes := httptest.NewRecorder()
+	handler.RequestHandler(firstRes, firstReq)
+
+	secondReq := httptest.NewRequestWithContext(ctx, http.MethodGet, fmt.Sprintf("/%s", targetId), nil)
+	secondReq.Header.Add("delay", "700")
+	secondReq.RemoteAddr = "127.0.0.1:8990"
+	secondRes := httptest.NewRecorder()
+	handler.RequestHandler(secondRes, secondReq)
+
+	if firstRes.Code != http.StatusOK {
+		t.Fatal("expected a successful request for first request")
+	}
+
+	if secondRes.Code != http.StatusGatewayTimeout {
+		t.Fatal("expected a timeout status code for second request")
+	}
+}
+
+func TestAddServerEntry_EnsureCachingSafety(t *testing.T) {
+	cache := ServerListT{
+		List: make(map[string]*db.GetApiMapByKeyRow),
+	}
+	var wg sync.WaitGroup
+
+	// Writers
+	for i := range 50 {
+		wg.Add(1)
+
+		wg.Go(func() {
+			defer wg.Done()
+			cache.AddServerEntry(fmt.Sprintf("key-%v", i), &db.GetApiMapByKeyRow{
+				Key:       fmt.Sprintf("key-%v", i),
+				TargetUrl: "http://localhost:8000/",
+			})
+		})
+	}
+
+	// Readers
+	for i := range 50 {
+		wg.Add(1)
+
+		wg.Go(func() {
+			defer wg.Done()
+			cache.GetServerEntry(fmt.Sprintf("key-%v", i))
+		})
+	}
+
+	wg.Wait()
+
+	// Verify all writes were successful
+	for i := range 50 {
+		getFuncVal, exists := cache.GetServerEntry(fmt.Sprintf("key-%v", i))
+		directVal := cache.List[fmt.Sprintf("key-%v", i)]
+
+		if !exists || getFuncVal != *directVal || getFuncVal.Key != fmt.Sprintf("key-%v", i) {
+			t.Fatal("Adding new Server entry in cache failed.\n")
+		}
+
+	}
+}
+
+func fakeDb_GetApiEntry(t *testing.T, key string, dbCalls *int32) *db.GetApiMapByKeyRow {
+	t.Helper()
+	atomic.AddInt32(dbCalls, 1)
+	return &db.GetApiMapByKeyRow{
+		Key:       key,
+		TargetUrl: "http://localhost:8000/",
+	}
+}
+
+func TestAddServerEntry_CountDbCalls(t *testing.T) {
+	cache := ServerListT{
+		List: make(map[string]*db.GetApiMapByKeyRow),
+	}
+
+	key := "abc123"
+	var dbCalls int32 = 0
+
+	var wg sync.WaitGroup
+
+	for range 100 {
+		wg.Add(1)
+
+		wg.Go(func() {
+			defer wg.Done()
+
+			val, exists := cache.GetServerEntry("abc123")
+
+			if !exists {
+				val = *fakeDb_GetApiEntry(t, key, &dbCalls)
+				added := cache.AddServerEntry(key, &val)
+				if added < 0 {
+					t.Fatal("Failed to add new server entry to cache")
+				}
+			}
+		})
+	}
+
+	wg.Wait()
+
+	if dbCalls != 1 {
+		t.Fatalf("expected only single db call, got %v", dbCalls)
 	}
 }

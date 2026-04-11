@@ -11,137 +11,8 @@ import (
 	"net"
 	"net/http"
 	"strings"
-	"sync"
 	"time"
-
-	"github.com/SanketJawali/naamon/src/db"
 )
-
-type HandlerFunc struct {
-	Client       *http.Client
-	ServerList   *ServerListT
-	RateLimiters map[string]*RateLimiter
-	Ctx          context.Context
-	DB           *db.Queries
-}
-
-type ServerListT struct {
-	List map[string]*db.GetApiMapByKeyRow
-	mu   sync.RWMutex
-}
-
-type Policies struct {
-	RateLimit *RateLimitPolicy `json:"rate_limit,omitempty"`
-	// Auth      *AuthPolicy      `json:"auth,omitempty"`
-	Timeout *TimeoutPolicy `json:"timeout,omitempty"`
-}
-
-type RateLimitPolicy struct {
-	Capacity int     `json:"capacity"`
-	Rate     float64 `json:"rate"`
-}
-
-type TimeoutPolicy struct {
-	DurationMs int `json:"duration_ms"`
-}
-
-type RateLimiter struct {
-	Rate       float64
-	Tokens     float64
-	Capacity   int
-	LastRefill time.Time
-	mu         sync.Mutex
-}
-
-// Returns the Rate limiter instance if already exists, if not then returns a new Rate Limiter instance.
-func (handler *HandlerFunc) GetRateLimiter(r *http.Request, rate float64, capacity int) *RateLimiter {
-	// Rate limit with IP with stripped port
-	ip, _, _ := net.SplitHostPort(r.RemoteAddr)
-	rateLimiter, exists := handler.RateLimiters[string(ip)]
-	if !exists {
-		log.Println("Returning a new rate limiter for IP: ", ip)
-		newRl := &RateLimiter{
-			Rate:       rate,
-			Tokens:     float64(capacity),
-			Capacity:   capacity,
-			LastRefill: time.Now(),
-		}
-		handler.RateLimiters[string(ip)] = newRl
-		return newRl
-	}
-
-	return rateLimiter
-}
-
-// Refills the tokens in token bucket for a client
-func (rl *RateLimiter) Refill() {
-	// To refill we calculate the time elapsed and set the tokens to the amount of tokens
-	// that should have been added according to the rate
-	// More efficient than having a thread adding new tokens time to time constantly
-	now := time.Now()
-
-	elapsed := now.Sub(rl.LastRefill).Seconds()
-	rl.Tokens += elapsed * rl.Rate
-
-	if rl.Tokens > float64(rl.Capacity) {
-		rl.Tokens = float64(rl.Capacity)
-	}
-
-	rl.LastRefill = now
-}
-
-// Checks if the request being made can be accepted and isn't exceeding the rate limit
-func (rl *RateLimiter) Accept() bool {
-	// Refill the token bucket
-	// If tokens available, accept and return true
-
-	rl.mu.Lock()
-	defer rl.mu.Unlock()
-
-	rl.Refill()
-
-	if rl.Tokens >= 1 {
-		rl.Tokens--
-		return true
-	}
-
-	return false
-}
-
-// Get the API Entry and its data from the in memory cache
-func (list *ServerListT) GetServerEntry(key string) (db.GetApiMapByKeyRow, bool) {
-	list.mu.RLock()
-	defer list.mu.RUnlock()
-
-	entry, exists := list.List[key]
-	if !exists {
-		return db.GetApiMapByKeyRow{}, false
-	}
-
-	return *entry, exists
-}
-
-// Add an API Entry in the in memory cache
-func (list *ServerListT) AddServerEntry(key string, value *db.GetApiMapByKeyRow) bool {
-	list.mu.Lock()
-	defer list.mu.Unlock()
-
-	// Check if exists
-	_, exists := list.List[key]
-	if exists {
-		return true
-	}
-
-	// Add new server entry in server list
-	list.List[key] = value
-
-	// Check if added successfully
-	if _, exists = list.List[key]; exists {
-		return true
-	}
-
-	return false
-}
 
 const defaultProxyTimeout = 30 * time.Second
 
@@ -201,7 +72,7 @@ func (handler HandlerFunc) RequestHandler(w http.ResponseWriter, r *http.Request
 		}
 
 		targetServer = dbEntry.TargetUrl
-		if status := handler.ServerList.AddServerEntry(targetId, &dbEntry); !status {
+		if status := handler.ServerList.AddServerEntry(targetId, &dbEntry); status < 0 {
 			log.Printf("Err: Failed to add server entry for ID '%s' to cache\n", targetId)
 		}
 		apiEntry = dbEntry

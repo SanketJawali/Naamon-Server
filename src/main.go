@@ -33,11 +33,10 @@ func main() {
 	ctx := context.Background()
 
 	conn, err := sql.Open("sqlite", ":memory:")
-	defer conn.Close()
-
 	if err != nil {
 		log.Fatal(err)
 	}
+	defer conn.Close()
 
 	// create tables
 	if _, err := conn.ExecContext(ctx, schema); err != nil {
@@ -66,6 +65,7 @@ func main() {
 		RateLimiters: make(map[string]*handlers.RateLimiter),
 		Ctx:          ctx,
 		DB:           queries,
+		FetchQueue:   make(map[string]*handlers.FetchQueue),
 	}
 
 	// Initialize HTTP server and routes
